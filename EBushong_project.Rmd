@@ -1,0 +1,111 @@
+---
+title: "Practical Machine Learning Project"
+author: "EBushong"
+date: "February 20, 2015"
+output: html_document
+---
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE, include=FALSE}
+## Practical Machine Learning Project
+## Predicting Weight Lifting Performance from Motion Data
+
+library(caret)
+
+## Raw data obtained from Practical Machine Learning Course site
+cleanVariables <- c("user_name", "roll_belt", "pitch_belt", "yaw_belt", 
+                    "total_accel_belt", "gyros_belt_x", "gyros_belt_y", 
+                    "gyros_belt_z", "accel_belt_x", "accel_belt_y", "accel_belt_z", 
+                    "magnet_belt_x", "magnet_belt_y", "magnet_belt_z", "roll_arm", 
+                    "pitch_arm", "yaw_arm", "total_accel_arm", "gyros_arm_x", 
+                    "gyros_arm_y", "gyros_arm_z", "accel_arm_x", "accel_arm_y", 
+                    "accel_arm_z", "magnet_arm_x", "magnet_arm_y", "magnet_arm_z", 
+                    "roll_dumbbell", "pitch_dumbbell", "yaw_dumbbell", 
+                    "total_accel_dumbbell", "gyros_dumbbell_x", "gyros_dumbbell_y", 
+                    "gyros_dumbbell_z", "accel_dumbbell_x", "accel_dumbbell_y", 
+                    "accel_dumbbell_z", "magnet_dumbbell_x", "magnet_dumbbell_y", 
+                    "magnet_dumbbell_z", "roll_forearm", "pitch_forearm", 
+                    "yaw_forearm", "total_accel_forearm", "gyros_forearm_x", 
+                    "gyros_forearm_y", "gyros_forearm_z", "accel_forearm_x", 
+                    "accel_forearm_y", "accel_forearm_z", "magnet_forearm_x", 
+                    "magnet_forearm_y", "magnet_forearm_z", "classe")
+
+data <- read.csv("pml-training.csv")
+validation <- read.csv("pml-testing.csv")
+data_clean <- subset(data, select = cleanVariables)
+
+## setting seed for reproducible results
+set.seed(1234)
+
+## splitting training data into 75% training / 25% testing data
+
+inTrain <- createDataPartition(y = data_clean$user_name, 
+                               p = 3/4, 
+                               list = FALSE)
+training <- data_clean[inTrain, ]
+testing <- data_clean[-inTrain, ]
+
+ctrl <- trainControl(method = "cv")
+
+## Generating Random Forest model to predict classe
+RF_model <- train(classe ~ ., data = training, method = "rf", trControl = ctrl)
+RF_testing_pred <- predict(RF_model, newdata = testing)
+
+## Generate SVM modelstr
+SVM_model <- train(classe ~ ., data = training, method = "svmRadial", trControl = ctrl)
+SVM_testing_pred <- predict(SVM_model, newdata = testing)
+
+## Generate GBM model
+GBM_model <- train(classe ~ ., data = training, method = "gbm", trControl = ctrl, 
+                   verbose = FALSE)
+GBM_testing_pred <- predict(GBM_model, newdata = testing)
+```
+
+##Introduction
+The goal of this project is to create a model for predicting the manner in which a barbell was lifted by individuals wearing a motion tracking device.  The raw dataset consists of 159 predictor variables and 1 response variable (*classe*).  There are 5 possible classifications for the response variable (A, B, C, D, E), where E is a correct performance of the barbell lift, and the other classification are all incorrect forms.  
+
+##Cleaning Data
+There are 19622 observations in the full dataset.  For many of the predictor variables, there are 19216 NA or null values for the observations.  Rather than trying to impute all of these missing values, I have decided that it is better to ignore these variables to predict *classe*.  Excluding these variables results in 53 predictor variables which have data for all 19622 observations.  These variables are:
+
+```{r, echo=FALSE, results='markup'}
+colnames(data_clean)
+```
+
+##Model Training and Assessment Methodology
+Three approaches were made to create models for predicting *classe*:
+
+* Random Forest
+* Generalized Boosted Regression
+* Support Vector Machine
+
+In order to optimize the models and efficiently estimate out-of-sample error, the caret package was used to perform model training on 75% of the observations, split on the variable *user_name* in order to ensure that all of the participants were equally represented in the training and testing data.  For all three models, 10-fold cross validation was used to estimate out-of-sample error rates.  Because there are 5 different classifications for the response variable, it is not easy to create ROC curves to assess model performance, so therefore accuracy was used as the primary means of assessing performance.  Following model tuning with 10-fold cross-validation, the final model was tested with the remaining 25% of the observations to obtain an estimate of out-of-sample error rate for the final model.
+
+##Random Forest
+The first model was created using the Random Forest method.  The caret optimization proceedure chose a final mtry level of `r RF_model$finalModel$mtry` because it gave the largest accuracy value of `r round(max(RF_model$results$Accuracy), 3)`. Predicting values for the testing dataset with the final Random Forest model gives the following confusion matrix results:
+
+```{r echo=FALSE, message=FALSE}
+library(caret)
+RF_confusionMatrix <- confusionMatrix(RF_testing_pred, testing$classe)
+RF_confusionMatrix
+RF_misclass_error <- sum(RF_testing_pred != testing$classe) / nrow(testing)
+```
+
+##Generalized Boosted Regression
+10-fold cross-validation was also used to optimize a GBM model.  The maximum accuracy achieved following optimization was `r round(max(GBM_model$results$Accuracy), 3)`.  When the final model was used to predict classifications for the testing dataset, the resulting confusion matrix was obtained:  
+
+```{r echo=FALSE}
+GBM_misclass_error <- sum(GBM_testing_pred != testing$classe) / nrow(testing)
+GBM_confusionMatrix <- confusionMatrix(GBM_testing_pred, testing$classe)
+GBM_confusionMatrix
+```
+
+##Support Vector Machine
+10-fold cross-validation was also used to optimize an SVM model.  The maximum accuracy achieved following optimization was `r round(max(SVM_model$results$Accuracy), 3)`.  When the final model was used to predict classifications for the testing dataset, the resulting confusion matrix was obtained:  
+
+```{r echo=FALSE}
+SVM_misclass_error <- sum(SVM_testing_pred != testing$classe) / nrow(testing)
+SVM_confusionMatrix <- confusionMatrix(SVM_testing_pred, testing$classe)
+SVM_confusionMatrix
+```
+
+##Summary
+The Random Forest model outperfomed the other two approaches, with an out-of-sample kappa value of `r round(RF_confusionMatrix$overall[2], 3)` and an accuracy of `r round(RF_confusionMatrix$overall[1], 3)` on the testing dataset.  The overall accuracy is better than the accuracy values obtained for the GBM model (`r round(GBM_confusionMatrix$overall[1], 3)`) and the SVM model (`r round(SVM_confusionMatrix$overall[1], 3)`).  The Random Forest model also acheives the highest sensitivity and specificity values for the 'E' classification, which could potentially be treated as a "positive" result.  Because the accuracy of the Random Forest model was so high, it is probably not going to be useful to attempt to improve model performance by stacking these models.  
